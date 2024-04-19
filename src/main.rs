@@ -10,17 +10,20 @@ use futures::{Stream, TryStreamExt};
 use tokio::{fs::File, io::BufWriter};
 use tokio_util::io::StreamReader;
 use crate::queue::process_video;
+use dotenv::dotenv;
+use std::env;
 
 use serde::Deserialize;
 
-const ADDR: &str = "127.0.0.1";
-const PORT: &str = "3000";
-const UPLOAD_DR: &str = "~/";
-const WAITING_DIR: &str = "~/";
-const IS_TEST: bool = true;
-
 #[tokio::main]
 async fn main() {
+    dotenv().ok();
+
+    let addr: String = env::var("ADDR").unwrap_or_else(|_| String::from("127.0.0.1"));
+    let port: String = env::var("PORT").unwrap_or_else(|_| String::from("3000"));
+    
+    let is_test: bool = env::var("IS_TEST").unwrap_or_else(|_| String::from("true")).parse().unwrap_or(true);
+
     // initialize tracing
     tracing_subscriber::fmt::init();
 
@@ -32,15 +35,17 @@ async fn main() {
     // build our application with a route
     let app = router;
     // run our app with hyper, listening globally on port 3000
-    let listener = tokio::net::TcpListener::bind(format!("{}:{}", ADDR, PORT)).await.unwrap();
-    println!("Listening at {}:{}", ADDR, PORT);
+    let listener = tokio::net::TcpListener::bind(format!("{}:{}", addr, port)).await.unwrap();
+    println!("Listening at {}:{}", addr, port);
     axum::serve(listener, app).await.unwrap();
 }
 
-async fn get_media() {}
-
 // Handler that accepts a multipart form upload and streams each field to a file.
 async fn upload_media(mut multipart: Multipart) -> Result<Redirect, (StatusCode, String)> {
+    let upload_dr: &str = env::var("UPLOAD_DR").unwrap_or_else(|_| String::from("~/"));
+    let waiting_dir: &str = env::var("WAITING_DIR").unwrap_or_else(|_| String::from("~/"));
+
+
     while let Ok(Some(field)) = multipart.next_field().await {
         let file_name = if let Some(file_name) = field.file_name() {
             file_name.to_owned()
@@ -48,7 +53,7 @@ async fn upload_media(mut multipart: Multipart) -> Result<Redirect, (StatusCode,
             continue;
         };
 
-        let path = std::path::Path::new(WAITING_DIR).to_path_buf();
+        let path = std::path::Path::new(waiting_dir).to_path_buf();
         //if !path_is_valid(&path) {
         //    return Err((StatusCode::BAD_REQUEST, "Invalid path".to_owned()));
         //}
