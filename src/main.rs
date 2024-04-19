@@ -2,14 +2,7 @@
 mod queue;
 mod video;
 
-use axum::{
-    body::Bytes,
-    routing::{get, post},
-    response::{Html, Redirect},
-    extract::{Multipart, DefaultBodyLimit},
-    http::StatusCode,
-    Router, BoxError
-};
+use axum::{body::Bytes, routing::{get, post}, response::{Html, Redirect}, extract::{Multipart, DefaultBodyLimit}, http::StatusCode, Router, BoxError};
 
 use std::io;
 use std::path::PathBuf;
@@ -17,6 +10,8 @@ use futures::{Stream, TryStreamExt};
 use tokio::{fs::File, io::BufWriter};
 use tokio_util::io::StreamReader;
 use crate::queue::process_video;
+
+use serde::Deserialize;
 
 const ADDR: &str = "127.0.0.1";
 const PORT: &str = "3000";
@@ -30,7 +25,7 @@ async fn main() {
     tracing_subscriber::fmt::init();
 
     let router = Router::new()
-        .route("/upload", post(upload_video))
+        .route("/upload", post(upload_media))
         .layer(DefaultBodyLimit::disable())
         .route("/", get(root));
 
@@ -42,8 +37,10 @@ async fn main() {
     axum::serve(listener, app).await.unwrap();
 }
 
+async fn get_media() {}
+
 // Handler that accepts a multipart form upload and streams each field to a file.
-async fn upload_video(mut multipart: Multipart) -> Result<Redirect, (StatusCode, String)> {
+async fn upload_media(mut multipart: Multipart) -> Result<Redirect, (StatusCode, String)> {
     while let Ok(Some(field)) = multipart.next_field().await {
         let file_name = if let Some(file_name) = field.file_name() {
             file_name.to_owned()
@@ -63,6 +60,14 @@ async fn upload_video(mut multipart: Multipart) -> Result<Redirect, (StatusCode,
     }
 
     Ok(Redirect::to("/"))
+}
+
+
+#[derive(Debug, Deserialize)]
+struct MediaStreamRequest {
+    pub uri: String,
+    pub audio_track_id: u8,
+    pub no_video: bool,
 }
 
 // Save a `Stream` to a file
