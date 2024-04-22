@@ -42,10 +42,8 @@ async fn main() {
 
 // Handler that accepts a multipart form upload and streams each field to a file.
 async fn upload_media(mut multipart: Multipart) -> Result<Redirect, (StatusCode, String)> {
-    let upload_dr: &str = env::var("UPLOAD_DR").unwrap_or_else(|_| String::from("~/"));
-    let waiting_dir: &str = env::var("WAITING_DIR").unwrap_or_else(|_| String::from("~/"));
-
-
+    //let upload_dr: &str = env::var("UPLOAD_DR").unwrap_or_else(|_| String::from("~/")).as_str();
+    
     while let Ok(Some(field)) = multipart.next_field().await {
         let file_name = if let Some(file_name) = field.file_name() {
             file_name.to_owned()
@@ -53,7 +51,7 @@ async fn upload_media(mut multipart: Multipart) -> Result<Redirect, (StatusCode,
             continue;
         };
 
-        let path = std::path::Path::new(waiting_dir).to_path_buf();
+        let path = std::path::Path::new(&env::var("WAITING_DIR").unwrap_or_else(|_| String::from("~/"))).to_path_buf();
         //if !path_is_valid(&path) {
         //    return Err((StatusCode::BAD_REQUEST, "Invalid path".to_owned()));
         //}

@@ -1,5 +1,4 @@
 use std::path::{Path, PathBuf};
-use tracing_subscriber::fmt::format;
 use crate::video::av::AV;
 use crate::video::segments::transcode_at;
 
