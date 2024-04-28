@@ -1,5 +1,5 @@
 use serde_json::{Value};
-use crate::video::stream::FromStream;
+use crate::av::stream::FromStream;
 use std::option::Option;
 
 #[derive(Debug)]
@@ -20,7 +20,7 @@ impl FromStream for VideoStream {
     fn from_stream(stream_data: &Value) -> Option<Box<Self>> {
         if let Some(codec_type) = stream_data.get("codec_type").and_then(|v| v.as_str()) {
             match codec_type {
-                "video" => {
+                "av" => {
                     let width = stream_data.get("width")?.as_u64().unwrap_or(0) as u16;
                     let height = stream_data.get("height")?.as_u64().unwrap_or(0) as u16;
                     let is_horizontal = width > height;

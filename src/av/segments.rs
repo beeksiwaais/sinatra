@@ -1,10 +1,9 @@
 use std::path::PathBuf;
 use std::process::Command;
 use regex::Regex;
-use crate::video::av::AV;
+use crate::av::av::AV;
 
 pub fn get_segments(path: &PathBuf) -> Vec<f64> {
-    print!("Hello from segment");
     let output = Command::new("ffprobe")
         .arg("-select_streams")
         .arg("v")
@@ -18,7 +17,6 @@ pub fn get_segments(path: &PathBuf) -> Vec<f64> {
 
     let segment = output.unwrap().stdout;
     let re = Regex::new(r"pts_time=(\d+\.\d+)").unwrap();
-
     let stdout_str = &*String::from_utf8_lossy(&segment);
 
     return stdout_str.lines()
@@ -41,7 +39,7 @@ pub fn get_segments(path: &PathBuf) -> Vec<f64> {
 
 pub async fn transcode_at(av: &AV<'_>, segment: usize, at_path: PathBuf) {
     if segment >= av.segments.len() {
-        println!("Segment {:?} was not transcoded because it do not match known segments in video", segment);
+        println!("Segment {:?} was not transcoded because it do not match known segments in av", segment);
     }
 
     let start_at = av.segments.get(segment).unwrap().to_string();

@@ -1,5 +1,5 @@
 use serde_json::{Value};
-use crate::video::stream::FromStream;
+use crate::av::stream::FromStream;
 
 #[derive(Debug)]
 pub(crate) struct AudioStream {

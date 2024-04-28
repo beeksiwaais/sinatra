@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
-use crate::video::av::AV;
-use crate::video::segments::transcode_at;
+use crate::av::av::AV;
+use crate::av::segments::transcode_at;
 
 pub async fn process_video(path: &PathBuf) {
     match AV::from_path(&path).await {

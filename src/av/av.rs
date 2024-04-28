@@ -1,10 +1,10 @@
 use serde_json::Result;
 use std::path::{Path, PathBuf};
-use crate::video::stream::FromStream;
-use crate::video::audio_stream::AudioStream;
-use crate::video::video_stream::VideoStream;
-use crate::video::stream::get_streams;
-use crate::video::segments::get_segments;
+use crate::av::stream::FromStream;
+use crate::av::audio_stream::AudioStream;
+use crate::av::video_stream::VideoStream;
+use crate::av::stream::get_streams;
+use crate::av::segments::get_segments;
 
 
 #[derive(Debug)]
