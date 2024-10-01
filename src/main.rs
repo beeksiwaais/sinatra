@@ -191,9 +191,27 @@ mod tests {
     }
 }
 
-// basic handler that responds with a static string
-async fn root() -> Html<&'static str> {
-    Html(
+
+async fn root() -> Html<String> {
+    dotenv().ok();
+    let upload_dir = env::var("UPLOAD_DIR").unwrap_or_else(|_| String::from("~/"));
+    println!("{}", upload_dir);
+    let files = match std::fs::read_dir(upload_dir) {
+        Ok(entries) => entries
+            .filter_map(|entry| {
+                entry.ok().and_then(|e| 
+                    e.file_name().to_str().map(String::from)
+                )
+            })
+            .collect::<Vec<String>>(),
+        Err(_) => vec!["Error reading directory".to_string()],
+    };
+
+    let file_list = files.iter()
+        .map(|file| format!("<li>{}</li>", file))
+        .collect::<String>();
+
+    Html(format!(
         r#"
         <!doctype html>
         <html>
@@ -201,6 +219,8 @@ async fn root() -> Html<&'static str> {
                 <title>Upload something!</title>
             </head>
             <body>
+                <h1>Files in upload directory:</h1>
+                <ul>{}</ul>
                 <form action="/upload" method="post" enctype="multipart/form-data">
                     <div>
                         <label>
@@ -208,7 +228,6 @@ async fn root() -> Html<&'static str> {
                             <input type="file" name="file" multiple>
                         </label>
                     </div>
-
                     <div>
                         <input type="submit" value="Upload files">
                     </div>
@@ -216,5 +235,6 @@ async fn root() -> Html<&'static str> {
             </body>
         </html>
         "#,
-    )
+        file_list
+    ))
 }
