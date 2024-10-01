@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use futures::{Stream, TryStreamExt};
 use tokio::{fs::File, io::BufWriter};
 use tokio_util::io::StreamReader;
-use crate::queue::process_video;
+use crate::queue::add_to_queue;
 use dotenv::dotenv;
 use std::env;
 
@@ -65,7 +65,7 @@ async fn upload_media(mut multipart: Multipart) -> Result<Redirect, (StatusCode,
         let path = path.join(&file_name);
         println!("Saving new file to {:?}", path);
         stream_to_file(&path, field).await?;
-        process_video(&path).await;
+        add_to_queue(&path).await;
     }
 
     Ok(Redirect::to("/"))
