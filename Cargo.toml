@@ -1,6 +1,6 @@
 [package]
 name = "sinatra"
-version = "0.1.0"
+version = "2024.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -16,3 +16,9 @@ serde_json = "1.0.116"
 regex = "1.10.4"
 ffmpeg-next = "7.0.0"
 dotenv = "0.15.0"
+
+
+[dev-dependencies]
+mockall = "0.12.1"
+bytes = "1.7.2"
+tempfile = "3.13.0"

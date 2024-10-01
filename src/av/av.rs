@@ -6,6 +6,8 @@ use crate::av::video_stream::VideoStream;
 use crate::av::stream::get_streams;
 use crate::av::segments::get_segments;
 
+#[cfg(test)]
+use mockall::{predicate::*, automock};
 
 #[derive(Debug)]
 pub(crate) struct AV<'a> {

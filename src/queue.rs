@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use crate::av::av::AV;
 use crate::av::segments::transcode_at;
 
+
 pub async fn process_video(path: &PathBuf) {
     match AV::from_path(&path).await {
         Ok(video) => {
@@ -27,4 +28,11 @@ fn rename(path: impl AsRef<Path>, name: String) -> PathBuf {
         result.set_extension(ext);
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::test;
+    use mockall::{predicate::*, mock};
 }
