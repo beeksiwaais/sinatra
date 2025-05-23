@@ -987,6 +987,7 @@ dependencies = [
 name = "sinatra"
 version = "2024.1.0"
 dependencies = [
+ "async-trait",
  "axum",
  "bytes",
  "dotenv",
