@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use crate::av::av::AV;
 use crate::av::segments::transcode_at;
+use crate::av::segments::cmd_executor::RealTranscodeExecutor; // Changed
 use tokio::sync::Semaphore;
 use std::sync::Arc;
 
@@ -28,8 +29,9 @@ pub async fn process_video(semaphore: Arc<Semaphore>, path: PathBuf) {
                 for i in 0..video.segments.len() {
                     let name = format!("_{}.mp4", i);
                     let segment_path = rename(&path, name);
+                    let executor = RealTranscodeExecutor {}; // Changed to RealTranscodeExecutor
                     
-                    match transcode_at(&video, i, segment_path.clone()).await {
+                    match transcode_at(&video, i, segment_path.clone(), &executor).await { // Pass updated executor
                         Ok(duration) => {
                             segments_data.push((segment_path, duration));
                         }
@@ -117,8 +119,8 @@ fn rename(path: impl AsRef<Path>, name: String) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::test;
-    use mockall::{predicate::*, mock};
+    // use tokio::test; // Removed
+    // use mockall::{predicate::*, mock}; // Removed
     use tempfile::tempdir; // For temporary directory
     use tokio::fs; // For async file operations
 

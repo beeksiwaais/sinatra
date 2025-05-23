@@ -5,9 +5,10 @@ use crate::av::audio_stream::AudioStream;
 use crate::av::video_stream::VideoStream;
 use crate::av::stream::get_streams;
 use crate::av::segments::get_segments;
+use crate::av::segments::cmd_executor::RealFfprobeRunner; // Changed to RealFfprobeRunner
 
-#[cfg(test)]
-use mockall::{predicate::*, automock};
+// #[cfg(test)] // Commenting out unused mockall imports
+// use mockall::{predicate::*, automock};
 
 #[derive(Debug)]
 pub(crate) struct AV<'a> {
@@ -33,7 +34,7 @@ impl AV<'_> {
                 .flatten()
                 .map(|stream| *stream)
                 .collect(),
-            segments: get_segments(&path),
+            segments: get_segments(&path, &RealFfprobeRunner{}), // Changed to RealFfprobeRunner
         })
     }
 }

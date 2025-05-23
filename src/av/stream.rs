@@ -39,14 +39,13 @@ pub fn get_streams(path: &PathBuf) -> Vec<Value> {
     return streams.as_array().unwrap().clone();
 }
 
-    // Returns a vector of streams when given a valid path.
+    // Returns a vector of streams when given a valid media file.
     #[test]
-    fn test_valid_path() {
+    fn test_get_streams_with_valid_media_file() {
         use std::path::PathBuf;
-        use serde_json::Value;
-        use get_streams;
+        // use serde_json::Value; // Removed unused import from test function
     
-        let path = PathBuf::from("valid_path");
+        let path = PathBuf::from("tests/assets/empty.mp4");
         let streams = get_streams(&path);
     
         assert_eq!(streams.len(), 2);
