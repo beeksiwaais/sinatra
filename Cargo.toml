@@ -16,10 +16,10 @@ serde_json = "1.0.116"
 regex = "1.10.4"
 ffmpeg-next = "7.0.0"
 dotenv = "0.15.0"
+async-trait = "0.1.80" # Moved from dev-dependencies
 
 
 [dev-dependencies]
 mockall = "0.12.1"
 bytes = "1.7.2"
 tempfile = "3.13.0"
-async-trait = "0.1.80"

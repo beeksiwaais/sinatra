@@ -3,69 +3,12 @@ use regex::Regex;
 use crate::av::av::AV;
 // These imports are now primarily within cmd_executor or tests
 
-pub mod cmd_executor {
-    use std::path::{Path, PathBuf}; // Keep Path here
-    use std::process::Output;       // Keep Output here
-    use std::io;                    // Keep io here
-    use async_trait::async_trait;   // Keep async_trait here
-    use tokio::process::Command as TokioCommand; // Keep TokioCommand here
-
-    // Trait for synchronous operations like get_segments (acting as FfprobeRunner)
-    #[cfg_attr(test, mockall::automock)] // Corrected automock syntax
-    pub trait FfprobeRunner { 
-        fn run_ffprobe_for_segments(&self, path: &PathBuf) -> io::Result<Output>;
-    }
-
-    pub struct RealFfprobeRunner; 
-
-    impl FfprobeRunner for RealFfprobeRunner { 
-        fn run_ffprobe_for_segments(&self, path: &PathBuf) -> io::Result<Output> {
-            std::process::Command::new("ffprobe")
-                .arg("-select_streams").arg("v")
-                .arg("-skip_frame").arg("nokey")
-                .arg("-show_frames").arg("-v").arg("quiet")
-                .arg(path)
-                .output()
-        }
-    }
-
-    // New trait specifically for transcoding operations
-    #[async_trait]
-    #[cfg_attr(test, mockall::automock)] // Corrected automock syntax
-    pub trait TranscodeExecutor {
-        async fn run_ffmpeg_transcode(&self, av_path: &Path, start_at: &str, duration: Option<String>, output_path: &PathBuf) -> io::Result<Output>;
-        async fn run_ffprobe_for_duration(&self, media_path: &PathBuf) -> io::Result<Output>;
-    }
-
-    pub struct RealTranscodeExecutor;
-
-    #[async_trait]
-    impl TranscodeExecutor for RealTranscodeExecutor {
-        async fn run_ffmpeg_transcode(&self, av_path: &Path, start_at: &str, duration: Option<String>, output_path: &PathBuf) -> io::Result<Output> {
-            let mut command = TokioCommand::new("ffmpeg");
-            command.arg("-y").arg("-ss").arg(start_at).arg("-i").arg(av_path);
-            if let Some(dur) = duration {
-                command.arg("-t").arg(dur);
-            }
-            command.arg(output_path);
-            command.output().await
-        }
-
-        async fn run_ffprobe_for_duration(&self, media_path: &PathBuf) -> io::Result<Output> {
-            TokioCommand::new("ffprobe")
-                .arg("-v").arg("error")
-                .arg("-show_entries").arg("format=duration")
-                .arg("-of").arg("default=noprint_wrappers=1:nokey=1")
-                .arg(media_path)
-                .output()
-                .await
-        }
-    }
-    // AsyncCommandExecutor and its impl on RealCommandExecutor are removed as TranscodeExecutor takes over
-}
+// The cmd_executor module has been moved to src/av/cmd.rs
 
 // get_segments uses FfprobeRunner (previously SyncCommandExecutor)
-pub fn get_segments(path: &PathBuf, runner: &impl cmd_executor::FfprobeRunner) -> Vec<f64> {
+// Note: The `cmd_executor` part of the path will be updated in a later step
+// to `crate::av::cmd`
+pub fn get_segments(path: &PathBuf, runner: &impl crate::av::cmd::FfprobeRunner) -> Vec<f64> { // Updated path
     let output_result = runner.run_ffprobe_for_segments(path);
 
     let output = match output_result {
@@ -116,7 +59,7 @@ impl std::fmt::Display for TranscodeError {
 impl Error for TranscodeError {}
 
 // Updated transcode_at to be async and use the new TranscodeExecutor
-pub async fn transcode_at(av: &AV<'_>, segment_index: usize, at_path: PathBuf, runner: &impl cmd_executor::TranscodeExecutor) -> Result<f64, Box<dyn Error>> {
+pub async fn transcode_at(av: &AV<'_>, segment_index: usize, at_path: PathBuf, runner: &impl crate::av::cmd::TranscodeExecutor) -> Result<f64, Box<dyn Error>> { // Updated path
     if segment_index >= av.segments.len() {
         let err_msg = format!("Segment index {:?} is out of bounds (len: {}). Not transcoding.", segment_index, av.segments.len());
         eprintln!("{}", err_msg);
@@ -212,7 +155,7 @@ mod tests {
     mod sync_tests {
         use super::*; 
         use crate::av::segments::get_segments;
-        use crate::av::segments::cmd_executor::MockFfprobeRunner; // Default mock name
+        use crate::av::cmd::MockFfprobeRunner; // Updated path
         // std::io is inherited via super::*
 
         #[test]
@@ -285,7 +228,7 @@ mod tests {
     mod async_transcode_tests { 
         use super::*; 
         use crate::av::segments::transcode_at;
-        use crate::av::segments::cmd_executor::MockTranscodeExecutor; // Default mock name
+        use crate::av::cmd::MockTranscodeExecutor; // Updated path
         // use tokio::test; // Removed redundant import, #[tokio::test] is used on functions
 
         #[tokio::test]

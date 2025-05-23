@@ -1,7 +1,8 @@
 use std::path::{Path, PathBuf};
 use crate::av::av::AV;
 use crate::av::segments::transcode_at;
-use crate::av::segments::cmd_executor::RealTranscodeExecutor; // Changed
+use crate::av::cmd::{RealTranscodeExecutor, RealFfprobeRunner}; // Added RealFfprobeRunner
+use crate::av::stream::RealStreamProvider; // Added RealStreamProvider
 use tokio::sync::Semaphore;
 use std::sync::Arc;
 
@@ -20,7 +21,10 @@ pub async fn add_to_queue(path: &PathBuf) {
 pub async fn process_video(semaphore: Arc<Semaphore>, path: PathBuf) {
     let permit = semaphore.clone().acquire_owned().await.unwrap();
 
-    match AV::from_path(&path).await {
+    let stream_provider = RealStreamProvider {};
+    let segment_runner = RealFfprobeRunner {};
+
+    match AV::from_path(&path, &stream_provider, &segment_runner).await { // Updated call
         Ok(video) => {
             if video.segments.is_empty() {
                 eprintln!("Error: No segments found for video {:?}", path);
