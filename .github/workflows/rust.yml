@@ -17,5 +17,9 @@ jobs:
       with:
         toolchain: stable
         override: true
+    - name: Install FFmpeg dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libavutil-dev libavformat-dev libavcodec-dev libswscale-dev libswresample-dev pkg-config
     - name: Run tests
       run: cargo test --verbose
