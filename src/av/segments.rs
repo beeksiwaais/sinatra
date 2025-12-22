@@ -15,7 +15,7 @@ pub fn get_segments(path: &PathBuf) -> Vec<f64> {
         .arg(path)
         .output();
 
-    let segment = output.unwrap().stdout;
+    let segment = output.unwrap().stdout; 
     let re = Regex::new(r"pts_time=(\d+\.\d+)").unwrap();
     let stdout_str = &*String::from_utf8_lossy(&segment);
 

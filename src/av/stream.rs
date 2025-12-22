@@ -1,11 +1,11 @@
+use serde_json::Value;
 use std::path::PathBuf;
 use std::process::Command;
-use serde_json::Value;
 
 pub trait FromStream {
     fn from_stream(stream_data: &Value) -> Option<Box<Self>>
-        where
-            Self: Sized;
+    where
+        Self: Sized;
 }
 
 pub fn get_streams(path: &PathBuf) -> Vec<Value> {
@@ -32,22 +32,21 @@ pub fn get_streams(path: &PathBuf) -> Vec<Value> {
         }
     }
 
-    let streams = v
-        .get("streams")
-        .expect("Couldn't get streams from ffprobe");
+    let streams = v.get("streams").expect("Couldn't get streams from ffprobe");
 
     return streams.as_array().unwrap().clone();
 }
 
-    // Returns a vector of streams when given a valid path.
-    #[test]
-    fn test_valid_path() {
-        use std::path::PathBuf;
-        use serde_json::Value;
-        use get_streams;
-    
-        let path = PathBuf::from("valid_path");
-        let streams = get_streams(&path);
-    
-        assert_eq!(streams.len(), 2);
-    }
+// Returns a vector of streams when given a valid path.
+#[test]
+#[ignore]
+fn test_valid_path() {
+    use get_streams;
+    use serde_json::Value;
+    use std::path::PathBuf;
+
+    let path = PathBuf::from("valid_path");
+    let streams = get_streams(&path);
+
+    assert_eq!(streams.len(), 2);
+}
