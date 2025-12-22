@@ -1,6 +1,6 @@
 use serde_json::Value;
 use std::path::PathBuf;
-use std::process::Command;
+use tokio::process::Command;
 
 pub trait FromStream {
     fn from_stream(stream_data: &Value) -> Option<Box<Self>>
@@ -8,7 +8,7 @@ pub trait FromStream {
         Self: Sized;
 }
 
-pub fn get_streams(path: &PathBuf) -> (Vec<Value>, f64) {
+pub async fn get_streams(path: &PathBuf) -> (Vec<Value>, f64) {
     let probe = Command::new("ffprobe")
         .arg("-v")
         .arg("error")
@@ -17,7 +17,8 @@ pub fn get_streams(path: &PathBuf) -> (Vec<Value>, f64) {
         .arg("-print_format")
         .arg("json")
         .arg(path)
-        .output();
+        .output()
+        .await;
 
     let probe = probe.unwrap().stdout;
     let v: Value = serde_json::from_str(&*String::from_utf8_lossy(&probe)).unwrap();
@@ -38,15 +39,15 @@ pub fn get_streams(path: &PathBuf) -> (Vec<Value>, f64) {
 }
 
 // Returns a vector of streams when given a valid path.
-#[test]
+#[tokio::test]
 #[ignore]
-fn test_valid_path() {
+async fn test_valid_path() {
     use get_streams;
     use serde_json::Value;
     use std::path::PathBuf;
 
     let path = PathBuf::from("valid_path");
-    let streams = get_streams(&path);
+    let streams = get_streams(&path).await;
 
     assert_eq!(streams.0.len(), 2);
 }

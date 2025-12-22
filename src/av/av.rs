@@ -19,9 +19,9 @@ pub(crate) struct AV<'a> {
 
 impl AV<'_> {
     pub async fn from_path(path: &PathBuf) -> Result<AV> {
-        let (streams, duration) = get_streams(&path);
+        let (streams, duration) = get_streams(&path).await;
 
-        let mut segments = get_segments(&path);
+        let mut segments = get_segments(&path).await;
         // Only append duration if it's significantly greater than the last segment
         if let Some(&last) = segments.last() {
             if duration - last > 0.1 {

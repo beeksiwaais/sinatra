@@ -1,9 +1,9 @@
-use std::path::PathBuf;
-use std::process::Command;
-use regex::Regex;
 use crate::av::av::AV;
+use regex::Regex;
+use std::path::PathBuf;
+use tokio::process::Command;
 
-pub fn get_segments(path: &PathBuf) -> Vec<f64> {
+pub async fn get_segments(path: &PathBuf) -> Vec<f64> {
     let output = Command::new("ffprobe")
         .arg("-select_streams")
         .arg("v")
@@ -13,13 +13,15 @@ pub fn get_segments(path: &PathBuf) -> Vec<f64> {
         .arg("-v")
         .arg("quiet")
         .arg(path)
-        .output();
+        .output()
+        .await;
 
-    let segment = output.unwrap().stdout; 
+    let segment = output.unwrap().stdout;
     let re = Regex::new(r"pts_time=(\d+\.\d+)").unwrap();
     let stdout_str = &*String::from_utf8_lossy(&segment);
 
-    return stdout_str.lines()
+    return stdout_str
+        .lines()
         .filter_map(|line| {
             if re.is_match(line) {
                 let caps = re.captures(line).unwrap();
@@ -39,11 +41,14 @@ pub fn get_segments(path: &PathBuf) -> Vec<f64> {
 
 pub async fn transcode_at(av: &AV<'_>, segment: usize, at_path: PathBuf) {
     if segment >= av.segments.len() {
-        println!("Segment {:?} was not transcoded because it do not match known segments in av", segment);
+        println!(
+            "Segment {:?} was not transcoded because it do not match known segments in av",
+            segment
+        );
     }
 
     let start_at = av.segments.get(segment).unwrap().to_string();
-    let duration: f64 = av.segments.get(segment +1).unwrap() - av.segments.get(segment).unwrap();
+    let duration: f64 = av.segments.get(segment + 1).unwrap() - av.segments.get(segment).unwrap();
     let duration_as_str: String = duration.to_string();
 
     let transcode = Command::new("ffmpeg")
@@ -59,7 +64,8 @@ pub async fn transcode_at(av: &AV<'_>, segment: usize, at_path: PathBuf) {
         //.arg("-codec")
         //.arg("copy")
         .arg(at_path.clone())
-        .output();
+        .output()
+        .await;
 
     println!("{:?}", transcode);
 }

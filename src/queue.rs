@@ -41,13 +41,23 @@ pub async fn process_video(semaphore: Arc<Semaphore>, path: PathBuf) {
             }
 
             use crate::hls::MediaPlaylist;
-            let mut playlist = MediaPlaylist::new(10);
+            let mut playlist = MediaPlaylist::new(0); // Initialize with 0
+            let mut max_duration = 0.0;
+
             for (i, segment) in segments.iter().enumerate() {
                 let start = video.segments.get(i).unwrap();
                 let end = video.segments.get(i + 1).unwrap();
                 let duration = end - start;
+
+                if duration > max_duration {
+                    max_duration = duration;
+                }
+
                 playlist.add_segment(duration, segment.clone());
             }
+
+            playlist.target_duration = max_duration.ceil() as u64;
+
             let playlist_path = hls_dir.join("playlist.m3u8");
             let _ = playlist.write_to(&playlist_path).await;
         }
