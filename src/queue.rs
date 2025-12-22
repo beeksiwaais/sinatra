@@ -28,8 +28,10 @@ pub async fn process_video(semaphore: Arc<Semaphore>, path: PathBuf) {
             }
 
             let mut segments = Vec::new();
-            let mut n: usize = 1;
+            let mut n: usize = 0;
+            println!("Processing {} video segments", video.segments.len());
             while n < video.segments.len() - 1 {
+                println!("Processing segment {}", n);
                 let segment_filename = format!("segment_{}.mp4", n);
                 let segment_path = hls_dir.join(&segment_filename);
 
@@ -40,8 +42,11 @@ pub async fn process_video(semaphore: Arc<Semaphore>, path: PathBuf) {
 
             use crate::hls::MediaPlaylist;
             let mut playlist = MediaPlaylist::new(10);
-            for segment in segments {
-                playlist.add_segment(10.0, segment);
+            for (i, segment) in segments.iter().enumerate() {
+                let start = video.segments.get(i).unwrap();
+                let end = video.segments.get(i + 1).unwrap();
+                let duration = end - start;
+                playlist.add_segment(duration, segment.clone());
             }
             let playlist_path = hls_dir.join("playlist.m3u8");
             let _ = playlist.write_to(&playlist_path).await;
