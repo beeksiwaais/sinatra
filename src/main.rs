@@ -1,4 +1,5 @@
 mod av;
+mod hls;
 mod queue;
 
 use crate::queue::MAX_CONCURRENT_VIDEOS;
@@ -189,21 +190,21 @@ mod tests {
     }
 
     #[test]
-    fn test_invalid_path_with_parent() {
+    fn test_path_with_parent() {
         let invalid_path = PathBuf::from("../invalid_directory");
         assert!(!path_is_valid(&invalid_path));
     }
 
     #[test]
-    fn test_invalid_path_with_multiple_components() {
-        let invalid_path = PathBuf::from("dir1/dir2");
-        assert!(!path_is_valid(&invalid_path));
+    fn test_path_with_multiple_components() {
+        let path = PathBuf::from("dir1/dir2");
+        assert!(path_is_valid(&path));
     }
 
     #[test]
-    fn test_invalid_path_with_root() {
-        let invalid_path = PathBuf::from("/root_directory");
-        assert!(!path_is_valid(&invalid_path));
+    fn test_path_with_root() {
+        let path = PathBuf::from("/root_directory");
+        assert!(path_is_valid(&path));
     }
 }
 
