@@ -42,6 +42,8 @@ pub async fn process_video(semaphore: Arc<Semaphore>, path: PathBuf) {
 
             use crate::hls::MediaPlaylist;
             let mut playlist = MediaPlaylist::new(0); // Initialize with 0
+            playlist.playlist_type = Some("VOD".to_string());
+            playlist.independent_segments = true;
             let mut max_duration = 0.0;
 
             for (i, segment) in segments.iter().enumerate() {

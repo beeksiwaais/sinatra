@@ -13,6 +13,8 @@ pub struct MediaPlaylist {
     pub media_sequence: u64,
     pub segments: Vec<MediaSegment>,
     pub end_list: bool,
+    pub playlist_type: Option<String>,
+    pub independent_segments: bool,
 }
 
 impl MediaPlaylist {
@@ -23,6 +25,8 @@ impl MediaPlaylist {
             media_sequence: 0,
             segments: Vec::new(),
             end_list: true,
+            playlist_type: None,
+            independent_segments: false,
         }
     }
 
@@ -41,6 +45,15 @@ impl MediaPlaylist {
         file.write_all(format!("#EXT-X-MEDIA-SEQUENCE:{}\n", self.media_sequence).as_bytes())
             .await?;
 
+        if let Some(pt) = &self.playlist_type {
+            file.write_all(format!("#EXT-X-PLAYLIST-TYPE:{}\n", pt).as_bytes())
+                .await?;
+        }
+
+        if self.independent_segments {
+            file.write_all(b"#EXT-X-INDEPENDENT-SEGMENTS\n").await?;
+        }
+
         for segment in &self.segments {
             // Using {:.6} for reasonable precision on float duration
             file.write_all(format!("#EXTINF:{:.6},\n", segment.duration).as_bytes())
@@ -54,5 +67,34 @@ impl MediaPlaylist {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::fs;
+
+    #[tokio::test]
+    async fn test_playlist_metadata() {
+        let mut playlist = MediaPlaylist::new(10);
+        playlist.playlist_type = Some("VOD".to_string());
+        playlist.independent_segments = true;
+        playlist.add_segment(9.5, "segment_0.ts".to_string());
+
+        let dir = std::env::temp_dir();
+        let path = dir.join("test_playlist.m3u8");
+
+        playlist.write_to(&path).await.unwrap();
+
+        let content = fs::read_to_string(&path).await.unwrap();
+
+        assert!(content.contains("#EXT-X-PLAYLIST-TYPE:VOD"));
+        assert!(content.contains("#EXT-X-INDEPENDENT-SEGMENTS"));
+        assert!(content.contains("#EXT-X-TARGETDURATION:10"));
+        assert!(content.contains("#EXTINF:9.500000,"));
+        assert!(content.contains("segment_0.ts"));
+
+        let _ = fs::remove_file(path).await;
     }
 }
