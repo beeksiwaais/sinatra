@@ -30,6 +30,7 @@ RUN apt-get update && apt-get install -y \
 COPY --from=builder /usr/src/app/target/release/sinatra .
 
 ENV UPLOAD_DIR=/app/uploads
+ENV ADDR=0.0.0.0
 RUN mkdir -p ${UPLOAD_DIR}
 
 EXPOSE 3000

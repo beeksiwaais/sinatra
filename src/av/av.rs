@@ -22,14 +22,11 @@ impl AV<'_> {
         let (streams, duration) = get_streams(&path).await;
 
         let mut segments = get_segments(&path).await;
-        // Only append duration if it's significantly greater than the last segment
         if let Some(&last) = segments.last() {
             if duration - last > 0.1 {
                 segments.push(duration);
             }
         } else if duration > 0.0 {
-            // If no keyframes found (weird), but duration exists, add 0.0 and duration?
-            // Assuming at least 0.0 is returned by get_segments if there's video
             segments.push(0.0);
             segments.push(duration);
         }
