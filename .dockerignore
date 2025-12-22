@@ -1,0 +1,9 @@
+target
+test_vars
+.git
+.gitignore
+uploads
+*.mp4
+*.m3u8
+*.ts
+*.md
