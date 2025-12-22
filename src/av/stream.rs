@@ -29,8 +29,8 @@ pub async fn get_streams(path: &PathBuf) -> (Vec<Value>, f64) {
         .and_then(|d_str| d_str.parse::<f64>().ok())
         .unwrap_or(0.0);
 
-    if duration > 60.0 {
-        panic!("Video too long")
+    if duration > 600.0 {
+        panic!("Video too long") // TODO: Handle that gracefully
     }
 
     let streams = v.get("streams").expect("Couldn't get streams from ffprobe");

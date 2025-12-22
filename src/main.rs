@@ -2,19 +2,18 @@ mod av;
 mod hls;
 mod queue;
 
-use crate::queue::MAX_CONCURRENT_VIDEOS;
+use crate::queue::{enqueue_video, RedisQueue, WorkerPool};
 use axum::{
     body::Bytes,
     extract::{DefaultBodyLimit, Multipart, State},
     http::StatusCode,
-    response::{Html, Redirect},
-    routing::{get, post},
+    routing::post,
     BoxError, Router,
 };
 use std::sync::Arc;
-use tokio::sync::Semaphore;
+use tower_http::cors::{Any, CorsLayer};
+use tower_http::services::ServeDir;
 
-use crate::queue::add_to_queue;
 use dotenv::dotenv;
 use futures::{Stream, TryStreamExt};
 use std::env;
@@ -31,23 +30,46 @@ async fn main() {
 
     let addr: String = env::var("ADDR").unwrap_or_else(|_| String::from("127.0.0.1"));
     let port: String = env::var("PORT").unwrap_or_else(|_| String::from("3000"));
-    let is_test: bool = env::var("IS_TEST")
-        .unwrap_or_else(|_| String::from("true"))
-        .parse()
-        .unwrap_or(true);
 
     tracing_subscriber::fmt::init();
 
-    let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_VIDEOS));
+    // Initialize Redis queue
+    let redis_url = env::var("REDIS_URL").unwrap_or_else(|_| String::from("redis://127.0.0.1/"));
+    let queue = match RedisQueue::new(&redis_url) {
+        Ok(q) => Arc::new(q),
+        Err(e) => {
+            eprintln!("Failed to connect to Redis: {:?}", e);
+            eprintln!("Make sure Redis is running at {}", redis_url);
+            std::process::exit(1);
+        }
+    };
 
-    let mut router = Router::new()
+    // Start worker pool
+    let pool = WorkerPool::new(queue.clone());
+    let _workers = pool.start();
+    println!(
+        "Started {} transcoding workers",
+        crate::queue::WORKERS_COUNT
+    );
+
+    // Get HLS directory for serving transcoded files
+    let upload_dir = env::var("UPLOAD_DIR").unwrap_or_else(|_| String::from("~/"));
+    let hls_dir = PathBuf::from(&upload_dir).join("hls");
+
+    // CORS layer for the viewer app - explicit configuration for better Firefox compatibility
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
+
+    let router = Router::new()
         .route("/upload", post(upload_media))
+        .nest_service("/hls", ServeDir::new(&hls_dir))
+        .layer(cors)
         .layer(DefaultBodyLimit::disable())
-        .with_state(semaphore);
+        .with_state(queue);
 
-    if is_test {
-        router = router.route("/", get(root));
-    }
+    println!("Serving HLS files from {:?}", hls_dir);
 
     let app = router;
     let listener = tokio::net::TcpListener::bind(format!("{}:{}", addr, port))
@@ -61,13 +83,10 @@ async fn main() {
 
 // Handler that accepts a multipart form upload and streams each field to a file.
 async fn upload_media(
-    State(semaphore): State<Arc<Semaphore>>,
+    State(queue): State<Arc<RedisQueue>>,
     mut multipart: Multipart,
-) -> Result<Redirect, (StatusCode, String)> {
-    let upload_dir = match env::var("UPLOAD_DIR") {
-        Ok(dir) => dir,
-        Err(_) => String::from("~/"),
-    };
+) -> Result<axum::Json<serde_json::Value>, (StatusCode, String)> {
+    let mut uploaded_files = Vec::new();
 
     while let Ok(Some(field)) = multipart.next_field().await {
         let file_name = if let Some(file_name) = field.file_name() {
@@ -86,10 +105,24 @@ async fn upload_media(
         let path = path.join(&file_name);
         println!("Saving new file to {:?}", path);
         stream_to_file(&path, field).await?;
-        add_to_queue(semaphore.clone(), &path).await;
+
+        // Enqueue video for processing
+        if let Err(e) = enqueue_video(&queue, &path).await {
+            eprintln!("Failed to enqueue video: {:?}", e);
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to queue video: {:?}", e),
+            ));
+        }
+
+        uploaded_files.push(file_name);
     }
 
-    Ok(Redirect::to("/"))
+    Ok(axum::Json(serde_json::json!({
+        "status": "ok",
+        "message": "Upload successful",
+        "files": uploaded_files
+    })))
 }
 
 #[derive(Debug, Deserialize)]
@@ -206,52 +239,4 @@ mod tests {
         let path = PathBuf::from("/root_directory");
         assert!(path_is_valid(&path));
     }
-}
-
-async fn root() -> Html<String> {
-    dotenv().ok();
-    let upload_dir = env::var("UPLOAD_DIR").unwrap_or_else(|_| String::from("~/"));
-    println!("{}", upload_dir);
-    let files = match std::fs::read_dir(upload_dir) {
-        Ok(entries) => entries
-            .filter_map(|entry| {
-                entry
-                    .ok()
-                    .and_then(|e| e.file_name().to_str().map(String::from))
-            })
-            .collect::<Vec<String>>(),
-        Err(_) => vec!["Error reading directory".to_string()],
-    };
-
-    let file_list = files
-        .iter()
-        .map(|file| format!("<li>{}</li>", file))
-        .collect::<String>();
-
-    Html(format!(
-        r#"
-        <!doctype html>
-        <html>
-            <head>
-                <title>Upload something!</title>
-            </head>
-            <body>
-                <h1>Files in upload directory:</h1>
-                <ul>{}</ul>
-                <form action="/upload" method="post" enctype="multipart/form-data">
-                    <div>
-                        <label>
-                            Upload file:
-                            <input type="file" name="file" multiple>
-                        </label>
-                    </div>
-                    <div>
-                        <input type="submit" value="Upload files">
-                    </div>
-                </form>
-            </body>
-        </html>
-        "#,
-        file_list
-    ))
 }

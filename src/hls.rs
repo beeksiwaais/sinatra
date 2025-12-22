@@ -15,18 +15,21 @@ pub struct MediaPlaylist {
     pub end_list: bool,
     pub playlist_type: Option<String>,
     pub independent_segments: bool,
+    /// Initialization segment for fMP4 (EXT-X-MAP)
+    pub init_segment: Option<String>,
 }
 
 impl MediaPlaylist {
     pub fn new(target_duration: u64) -> Self {
         Self {
-            version: 3,
+            version: 7, // Version 7 for fMP4 support
             target_duration,
             media_sequence: 0,
             segments: Vec::new(),
             end_list: true,
             playlist_type: None,
             independent_segments: false,
+            init_segment: None,
         }
     }
 
@@ -52,6 +55,12 @@ impl MediaPlaylist {
 
         if self.independent_segments {
             file.write_all(b"#EXT-X-INDEPENDENT-SEGMENTS\n").await?;
+        }
+
+        // fMP4 initialization segment
+        if let Some(init) = &self.init_segment {
+            file.write_all(format!("#EXT-X-MAP:URI=\"{}\"\n", init).as_bytes())
+                .await?;
         }
 
         for segment in &self.segments {
