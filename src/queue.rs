@@ -1,18 +1,15 @@
-use std::path::{Path, PathBuf};
 use crate::av::av::AV;
 use crate::av::segments::transcode_at;
-use tokio::sync::Semaphore;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tokio::sync::Semaphore;
 
-const MAX_CONCURRENT_VIDEOS: usize = 3;
+pub const MAX_CONCURRENT_VIDEOS: usize = 3;
 
-
-pub async fn add_to_queue(path: &PathBuf) {
-    let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_VIDEOS));
-
+pub async fn add_to_queue(semaphore: Arc<Semaphore>, path: &PathBuf) {
     tokio::spawn(process_video(
         semaphore,
-        path.clone() // bad
+        path.clone(), // bad
     ));
 }
 
@@ -23,17 +20,17 @@ pub async fn process_video(semaphore: Arc<Semaphore>, path: PathBuf) {
         Ok(video) => {
             let mut segments = Vec::new();
             let mut n: usize = 1;
-            while n < video.segments.len() {
+            while n < video.segments.len() - 1 {
                 let name = format!("_{:?}.mp4", n);
                 let segment_name = rename(&path, name);
-                
+
                 transcode_at(&video, n, segment_name.clone()).await;
                 segments.push(segment_name);
                 n += 1;
             }
-            
-            create_hls_playlist(&segments).await;
-        },
+
+            let _ = create_hls_playlist(&segments).await;
+        }
         Err(e) => eprintln!("Error processing video: {:?}", e),
     }
 
@@ -57,7 +54,8 @@ async fn create_hls_playlist(segments: &[PathBuf]) -> Result<(), std::io::Error>
 
     for segment in segments {
         file.write_all(b"#EXTINF:10.0,\n").await?;
-        file.write_all(segment.file_name().unwrap().to_str().unwrap().as_bytes()).await?;
+        file.write_all(segment.file_name().unwrap().to_str().unwrap().as_bytes())
+            .await?;
         file.write_all(b"\n").await?;
     }
 
@@ -80,6 +78,6 @@ fn rename(path: impl AsRef<Path>, name: String) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mockall::{mock, predicate::*};
     use tokio::test;
-    use mockall::{predicate::*, mock};
 }

@@ -1,17 +1,26 @@
-
-mod queue;
 mod av;
+mod queue;
 
-use axum::{body::Bytes, routing::{get, post}, response::{Html, Redirect}, extract::{Multipart, DefaultBodyLimit}, http::StatusCode, Router, BoxError};
+use crate::queue::MAX_CONCURRENT_VIDEOS;
+use axum::{
+    body::Bytes,
+    extract::{DefaultBodyLimit, Multipart, State},
+    http::StatusCode,
+    response::{Html, Redirect},
+    routing::{get, post},
+    BoxError, Router,
+};
+use std::sync::Arc;
+use tokio::sync::Semaphore;
 
-use std::io;
-use std::path::PathBuf;
-use futures::{Stream, TryStreamExt};
-use tokio::{fs::File, io::BufWriter};
-use tokio_util::io::StreamReader;
 use crate::queue::add_to_queue;
 use dotenv::dotenv;
+use futures::{Stream, TryStreamExt};
 use std::env;
+use std::io;
+use std::path::PathBuf;
+use tokio::{fs::File, io::BufWriter};
+use tokio_util::io::StreamReader;
 
 use serde::Deserialize;
 
@@ -21,13 +30,19 @@ async fn main() {
 
     let addr: String = env::var("ADDR").unwrap_or_else(|_| String::from("127.0.0.1"));
     let port: String = env::var("PORT").unwrap_or_else(|_| String::from("3000"));
-    let is_test: bool = env::var("IS_TEST").unwrap_or_else(|_| String::from("true")).parse().unwrap_or(true);
+    let is_test: bool = env::var("IS_TEST")
+        .unwrap_or_else(|_| String::from("true"))
+        .parse()
+        .unwrap_or(true);
 
     tracing_subscriber::fmt::init();
 
+    let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_VIDEOS));
+
     let mut router = Router::new()
         .route("/upload", post(upload_media))
-        .layer(DefaultBodyLimit::disable());
+        .layer(DefaultBodyLimit::disable())
+        .with_state(semaphore);
 
     if is_test {
         router = router.route("/", get(root));
@@ -44,12 +59,15 @@ async fn main() {
 }
 
 // Handler that accepts a multipart form upload and streams each field to a file.
-async fn upload_media(mut multipart: Multipart) -> Result<Redirect, (StatusCode, String)> {
+async fn upload_media(
+    State(semaphore): State<Arc<Semaphore>>,
+    mut multipart: Multipart,
+) -> Result<Redirect, (StatusCode, String)> {
     let upload_dir = match env::var("UPLOAD_DIR") {
         Ok(dir) => dir,
         Err(_) => String::from("~/"),
     };
-    
+
     while let Ok(Some(field)) = multipart.next_field().await {
         let file_name = if let Some(file_name) = field.file_name() {
             file_name.to_owned()
@@ -57,7 +75,9 @@ async fn upload_media(mut multipart: Multipart) -> Result<Redirect, (StatusCode,
             continue;
         };
 
-        let path = std::path::Path::new(&env::var("WAITING_DIR").unwrap_or_else(|_| String::from("~/"))).to_path_buf();
+        let path =
+            std::path::Path::new(&env::var("WAITING_DIR").unwrap_or_else(|_| String::from("~/")))
+                .to_path_buf();
         if !path_is_valid(&path) {
             return Err((StatusCode::BAD_REQUEST, "Invalid path".to_owned()));
         }
@@ -65,12 +85,11 @@ async fn upload_media(mut multipart: Multipart) -> Result<Redirect, (StatusCode,
         let path = path.join(&file_name);
         println!("Saving new file to {:?}", path);
         stream_to_file(&path, field).await?;
-        add_to_queue(&path).await;
+        add_to_queue(semaphore.clone(), &path).await;
     }
 
     Ok(Redirect::to("/"))
 }
-
 
 #[derive(Debug, Deserialize)]
 struct MediaStreamRequest {
@@ -81,9 +100,9 @@ struct MediaStreamRequest {
 
 // Save a `Stream` to a file
 async fn stream_to_file<S, E>(path: &PathBuf, stream: S) -> Result<(), (StatusCode, String)>
-    where
-        S: Stream<Item = Result<Bytes, E>>,
-        E: Into<BoxError>,
+where
+    S: Stream<Item = Result<Bytes, E>>,
+    E: Into<BoxError>,
 {
     async {
         let body_with_io_error = stream.map_err(|err| io::Error::new(io::ErrorKind::Other, err));
@@ -95,33 +114,30 @@ async fn stream_to_file<S, E>(path: &PathBuf, stream: S) -> Result<(), (StatusCo
 
         Ok::<_, io::Error>(())
     }
-        .await
-        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))
+    .await
+    .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))
 }
 
 fn path_is_valid(path: &PathBuf) -> bool {
     println!("Checking path {:?}", path);
-    let mut components = path.components().peekable();
-    if let Some(first) = components.peek() {
-        if !matches!(first, std::path::Component::Normal(_)) {
-            println!("Unvalid Path");
+    for component in path.components() {
+        if matches!(component, std::path::Component::ParentDir) {
+            println!("Invalid Path: Contains ParentDir");
             return false;
         }
     }
-
-    components.count() == 1
+    true
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
     use bytes::Bytes;
     use futures::stream;
     use std::fs;
+    use std::path::PathBuf;
     use tempfile::tempdir;
     use tokio;
-
 
     #[tokio::test]
     async fn test_stream_to_file() {
@@ -191,7 +207,6 @@ mod tests {
     }
 }
 
-
 async fn root() -> Html<String> {
     dotenv().ok();
     let upload_dir = env::var("UPLOAD_DIR").unwrap_or_else(|_| String::from("~/"));
@@ -199,15 +214,16 @@ async fn root() -> Html<String> {
     let files = match std::fs::read_dir(upload_dir) {
         Ok(entries) => entries
             .filter_map(|entry| {
-                entry.ok().and_then(|e| 
-                    e.file_name().to_str().map(String::from)
-                )
+                entry
+                    .ok()
+                    .and_then(|e| e.file_name().to_str().map(String::from))
             })
             .collect::<Vec<String>>(),
         Err(_) => vec!["Error reading directory".to_string()],
     };
 
-    let file_list = files.iter()
+    let file_list = files
+        .iter()
         .map(|file| format!("<li>{}</li>", file))
         .collect::<String>();
 
