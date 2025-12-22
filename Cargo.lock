@@ -932,7 +932,6 @@ dependencies = [
  "ffmpeg-next",
  "futures",
  "mockall",
- "regex",
  "serde",
  "serde_json",
  "tempfile",

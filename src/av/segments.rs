@@ -1,42 +1,50 @@
 use crate::av::av::AV;
-use regex::Regex;
+use ffmpeg_next as ffmpeg;
 use std::path::PathBuf;
 use tokio::process::Command;
+use tokio::task;
 
 pub async fn get_segments(path: &PathBuf) -> Vec<f64> {
-    let output = Command::new("ffprobe")
-        .arg("-select_streams")
-        .arg("v")
-        .arg("-skip_frame")
-        .arg("nokey")
-        .arg("-show_frames")
-        .arg("-v")
-        .arg("quiet")
-        .arg(path)
-        .output()
-        .await;
+    let path_clone = path.clone();
 
-    let segment = output.unwrap().stdout;
-    let re = Regex::new(r"pts_time=(\d+\.\d+)").unwrap();
-    let stdout_str = &*String::from_utf8_lossy(&segment);
+    task::spawn_blocking(move || {
+        ffmpeg::init().unwrap();
+        match ffmpeg::format::input(&path_clone) {
+            Ok(mut context) => {
+                let stream_index = context
+                    .streams()
+                    .best(ffmpeg::media::Type::Video)
+                    .map(|stream| stream.index());
 
-    return stdout_str
-        .lines()
-        .filter_map(|line| {
-            if re.is_match(line) {
-                let caps = re.captures(line).unwrap();
-                println!("{:?}", caps);
-                Some(caps.get(1).unwrap().as_str())
-            } else {
-                None
+                if let Some(stream_index) = stream_index {
+                    let time_base = context.stream(stream_index).unwrap().time_base();
+                    let time_base_f64 =
+                        time_base.numerator() as f64 / time_base.denominator() as f64;
+
+                    let mut segments = Vec::new();
+
+                    for (stream, packet) in context.packets() {
+                        if stream.index() == stream_index && packet.is_key() {
+                            if let Some(pts) = packet.pts() {
+                                let time = pts as f64 * time_base_f64;
+                                segments.push(time);
+                            }
+                        }
+                    }
+                    segments
+                } else {
+                    eprintln!("No video stream found");
+                    Vec::new()
+                }
             }
-        })
-        // Print the processed lines
-        .map(|processed_line| {
-            println!("{}", processed_line);
-            processed_line.parse::<f64>().unwrap()
-        })
-        .collect();
+            Err(e) => {
+                eprintln!("Error opening input: {}", e);
+                Vec::new()
+            }
+        }
+    })
+    .await
+    .unwrap()
 }
 
 pub async fn transcode_at(av: &AV<'_>, segment: usize, at_path: PathBuf) {
