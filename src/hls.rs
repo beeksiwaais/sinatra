@@ -21,7 +21,7 @@ pub struct MediaPlaylist {
 impl MediaPlaylist {
     pub fn new(target_duration: u64) -> Self {
         Self {
-            version: 3,
+            version: 7, // Version 7 for fMP4 support
             target_duration,
             media_sequence: 0,
             segments: Vec::new(),

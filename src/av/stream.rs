@@ -14,7 +14,6 @@ pub async fn get_streams(path: &PathBuf) -> (Vec<Value>, f64) {
 
     task::spawn_blocking(move || {
         ffmpeg::init().unwrap();
-
         match ffmpeg::format::input(&path_clone) {
             Ok(input) => {
                 let duration = input.duration() as f64 / ffmpeg::ffi::AV_TIME_BASE as f64;

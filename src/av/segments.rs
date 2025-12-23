@@ -76,7 +76,6 @@ pub async fn transcode_at(av: &AV<'_>, segment: usize, at_path: PathBuf) {
         // Fragmented MP4 flags for HLS compatibility
         .arg("-movflags")
         .arg("frag_keyframe+empty_moov+default_base_moof")
-        // Critical: offset the timestamps so segments are continuous
         .arg("-output_ts_offset")
         .arg(&start_at)
         .arg(&temp_path)
@@ -267,4 +266,63 @@ async fn test_parallel_transcoding() {
     // Cleanup
     let _ = fs::remove_file(init_out).await;
     let _ = fs::remove_file(seg_out).await;
+}
+
+/// Extract the initialization segment (ftyp+moov) from the first media segment.
+/// For fMP4 HLS, we need a separate init.mp4 containing just the moov box.
+pub async fn generate_init_segment(
+    first_segment: &PathBuf,
+    init_path: &PathBuf,
+) -> Result<(), std::io::Error> {
+    use tokio::fs;
+    use tokio::io::AsyncReadExt;
+
+    let mut file = fs::File::open(first_segment).await?;
+    let mut data = Vec::new();
+    file.read_to_end(&mut data).await?;
+
+    // Parse MP4 boxes to find ftyp and moov
+    let mut offset = 0;
+    let mut init_data = Vec::new();
+
+    while offset < data.len() {
+        if offset + 8 > data.len() {
+            break;
+        }
+
+        // Read box size (big endian)
+        let size = u32::from_be_bytes([
+            data[offset],
+            data[offset + 1],
+            data[offset + 2],
+            data[offset + 3],
+        ]) as usize;
+
+        if size < 8 || offset + size > data.len() {
+            break;
+        }
+
+        // Read box type
+        let box_type = std::str::from_utf8(&data[offset + 4..offset + 8]).unwrap_or("");
+
+        match box_type {
+            "ftyp" | "moov" => {
+                init_data.extend_from_slice(&data[offset..offset + size]);
+            }
+            "moof" => {
+                // Stop when we hit media fragments
+                break;
+            }
+            _ => {}
+        }
+
+        offset += size;
+    }
+
+    if !init_data.is_empty() {
+        fs::write(init_path, &init_data).await?;
+        println!("Generated init segment at {:?}", init_path);
+    }
+
+    Ok(())
 }
