@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sinatra HLS Viewer</title>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, #0f0f23 0%, #1a1a2e 50%, #16213e 100%);
+            min-height: 100vh;
+            color: #e0e0e0;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 0.5rem;
+        }
+
+        .subtitle {
+            color: #888;
+            font-size: 1.1rem;
+        }
+
+        .drop-zone {
+            border: 3px dashed rgba(102, 126, 234, 0.4);
+            border-radius: 20px;
+            padding: 4rem 2rem;
+            text-align: center;
+            transition: all 0.3s ease;
+            background: rgba(255, 255, 255, 0.02);
+            cursor: pointer;
+            margin-bottom: 2rem;
+        }
+
+        .drop-zone:hover,
+        .drop-zone.dragover {
+            border-color: #667eea;
+            background: rgba(102, 126, 234, 0.1);
+            transform: scale(1.01);
+        }
+
+        .drop-zone-icon {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+        }
+
+        .drop-zone h2 {
+            font-size: 1.5rem;
+            margin-bottom: 0.5rem;
+            color: #fff;
+        }
+
+        .drop-zone p {
+            color: #888;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .video-container {
+            background: #000;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            margin-bottom: 2rem;
+        }
+
+        video {
+            width: 100%;
+            display: block;
+        }
+
+        .progress-container {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .progress-title {
+            font-weight: 600;
+            font-size: 1.1rem;
+        }
+
+        .progress-status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.9rem;
+            color: #888;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #667eea;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        .progress-bar {
+            height: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            border-radius: 4px;
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+
+        .segment-list {
+            margin-top: 1.5rem;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+            gap: 0.5rem;
+        }
+
+        .segment {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 0.75rem;
+            border-radius: 8px;
+            text-align: center;
+            font-size: 0.85rem;
+            transition: all 0.2s ease;
+        }
+
+        .segment.pending {
+            opacity: 0.4;
+        }
+
+        .segment.processing {
+            background: rgba(102, 126, 234, 0.2);
+            border: 1px solid rgba(102, 126, 234, 0.4);
+        }
+
+        .segment.complete {
+            background: rgba(76, 175, 80, 0.2);
+            border: 1px solid rgba(76, 175, 80, 0.4);
+        }
+
+        .controls {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+        }
+
+        button {
+            padding: 0.875rem 2rem;
+            border: none;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-family: inherit;
+        }
+
+        .btn-primary {
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: #e0e0e0;
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        .error {
+            background: rgba(244, 67, 54, 0.1);
+            border: 1px solid rgba(244, 67, 54, 0.3);
+            color: #f44336;
+            padding: 1rem;
+            border-radius: 12px;
+            margin-bottom: 2rem;
+        }
+
+        .file-info {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .file-icon {
+            font-size: 2rem;
+        }
+
+        .file-details h3 {
+            font-size: 1rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .file-details p {
+            font-size: 0.85rem;
+            color: #888;
+        }
+
+        footer {
+            text-align: center;
+            padding: 2rem;
+            color: #666;
+            font-size: 0.9rem;
+        }
+
+        footer a {
+            color: #667eea;
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎬 Sinatra HLS Viewer</h1>
+            <p class="subtitle">Drag & drop a video to transcode and stream via HLS</p>
+        </header>
+
+        <div id="dropZone" class="drop-zone">
+            <div class="drop-zone-icon">📹</div>
+            <h2>Drop your video here</h2>
+            <p>or click to select a file</p>
+            <input type="file" id="fileInput" accept="video/*" style="display: none;">
+        </div>
+
+        <div id="fileInfo" class="file-info hidden">
+            <span class="file-icon">🎥</span>
+            <div class="file-details">
+                <h3 id="fileName">video.mp4</h3>
+                <p id="fileSize">0 MB</p>
+            </div>
+        </div>
+
+        <div id="progressContainer" class="progress-container hidden">
+            <div class="progress-header">
+                <span class="progress-title">Transcoding Progress</span>
+                <span class="progress-status">
+                    <span class="status-dot"></span>
+                    <span id="statusText">Processing...</span>
+                </span>
+            </div>
+            <div class="progress-bar">
+                <div id="progressFill" class="progress-fill"></div>
+            </div>
+            <div id="segmentList" class="segment-list"></div>
+        </div>
+
+        <div id="errorContainer" class="error hidden"></div>
+
+        <div id="videoContainer" class="video-container hidden">
+            <video id="video" controls></video>
+        </div>
+
+        <div id="controls" class="controls hidden">
+            <button class="btn-secondary" onclick="resetViewer()">Upload Another Video</button>
+        </div>
+    </div>
+
+    <footer>
+        <p>Powered by <a href="#">Sinatra</a> — Redis-backed parallel transcoding</p>
+    </footer>
+
+    <script>
+        const API_BASE = 'http://127.0.0.1:3000';
+        const HLS_BASE = 'http://127.0.0.1:3000/hls';
+        
+        let currentVideoName = null;
+        let pollInterval = null;
+
+        // DOM Elements
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const fileInfo = document.getElementById('fileInfo');
+        const fileName = document.getElementById('fileName');
+        const fileSize = document.getElementById('fileSize');
+        const progressContainer = document.getElementById('progressContainer');
+        const progressFill = document.getElementById('progressFill');
+        const statusText = document.getElementById('statusText');
+        const segmentList = document.getElementById('segmentList');
+        const errorContainer = document.getElementById('errorContainer');
+        const videoContainer = document.getElementById('videoContainer');
+        const video = document.getElementById('video');
+        const controls = document.getElementById('controls');
+
+        // Drag and Drop
+        dropZone.addEventListener('click', () => fileInput.click());
+        
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('dragover');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFile(files[0]);
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFile(e.target.files[0]);
+            }
+        });
+
+        function handleFile(file) {
+            if (!file.type.startsWith('video/')) {
+                showError('Please select a video file');
+                return;
+            }
+
+            // Show file info
+            fileName.textContent = file.name;
+            fileSize.textContent = formatFileSize(file.size);
+            fileInfo.classList.remove('hidden');
+            dropZone.classList.add('hidden');
+
+            // Get video name without extension
+            currentVideoName = file.name.replace(/\.[^/.]+$/, '');
+
+            // Upload the file
+            uploadFile(file);
+        }
+
+        async function uploadFile(file) {
+            progressContainer.classList.remove('hidden');
+            statusText.textContent = 'Uploading...';
+            progressFill.style.width = '0%';
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch(`${API_BASE}/upload`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error('Upload failed');
+                }
+
+                statusText.textContent = 'Transcoding...';
+                
+                // Start polling for playlist
+                startPollingForPlaylist();
+            } catch (error) {
+                showError(`Upload failed: ${error.message}`);
+            }
+        }
+
+        function startPollingForPlaylist() {
+            let attempts = 0;
+            const maxAttempts = 120; // 2 minutes max
+            
+            pollInterval = setInterval(async () => {
+                attempts++;
+                
+                if (attempts > maxAttempts) {
+                    clearInterval(pollInterval);
+                    showError('Timeout waiting for transcoding to complete');
+                    return;
+                }
+
+                try {
+                    const playlistUrl = `${HLS_BASE}/${currentVideoName}/playlist.m3u8`;
+                    const response = await fetch(playlistUrl, { method: 'HEAD' });
+                    
+                    if (response.ok) {
+                        clearInterval(pollInterval);
+                        onPlaylistReady(playlistUrl);
+                    } else {
+                        // Update progress estimation
+                        const progress = Math.min(90, (attempts / maxAttempts) * 100);
+                        progressFill.style.width = `${progress}%`;
+                    }
+                } catch (e) {
+                    // Playlist not ready yet, continue polling
+                    const progress = Math.min(90, (attempts / maxAttempts) * 100);
+                    progressFill.style.width = `${progress}%`;
+                }
+            }, 1000);
+        }
+
+        function onPlaylistReady(playlistUrl) {
+            progressFill.style.width = '100%';
+            statusText.textContent = 'Ready!';
+            
+            setTimeout(() => {
+                progressContainer.classList.add('hidden');
+                videoContainer.classList.remove('hidden');
+                controls.classList.remove('hidden');
+                
+                // Initialize HLS.js or native playback
+                if (Hls.isSupported()) {
+                    const hls = new Hls({
+                        debug: false,
+                        enableWorker: true,
+                        lowLatencyMode: true,
+                    });
+                    hls.loadSource(playlistUrl);
+                    hls.attachMedia(video);
+                    hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                        video.play();
+                    });
+                } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                    // Native HLS support (Safari)
+                    video.src = playlistUrl;
+                    video.addEventListener('loadedmetadata', () => {
+                        video.play();
+                    });
+                } else {
+                    showError('HLS playback not supported in this browser');
+                }
+            }, 500);
+        }
+
+        function showError(message) {
+            errorContainer.textContent = message;
+            errorContainer.classList.remove('hidden');
+        }
+
+        function resetViewer() {
+            if (pollInterval) {
+                clearInterval(pollInterval);
+            }
+            
+            currentVideoName = null;
+            fileInput.value = '';
+            
+            dropZone.classList.remove('hidden');
+            fileInfo.classList.add('hidden');
+            progressContainer.classList.add('hidden');
+            videoContainer.classList.add('hidden');
+            controls.classList.add('hidden');
+            errorContainer.classList.add('hidden');
+            
+            video.pause();
+            video.src = '';
+            
+            progressFill.style.width = '0%';
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+    </script>
+</body>
+</html>
