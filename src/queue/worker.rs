@@ -119,6 +119,14 @@ async fn check_video_completion(
         println!("Video {} complete! Generating playlist...", job.video_id);
         generate_playlist(queue, &job.video_id).await?;
 
+        println!("Deleting source file: {:?}", job.source_path);
+        if let Err(e) = tokio::fs::remove_file(&job.source_path).await {
+            eprintln!(
+                "Warning: Failed to delete source file {:?}: {:?}",
+                job.source_path, e
+            );
+        }
+
         // Clean up Redis data
         queue.cleanup_video(&job.video_id).await?;
     }
