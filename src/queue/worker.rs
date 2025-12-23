@@ -142,11 +142,10 @@ async fn generate_playlist(
     playlist.playlist_type = Some("VOD".to_string());
     playlist.independent_segments = true;
 
-    // Generate init segment from first media segment
-    let first_segment = status.hls_dir.join("segment_0.mp4");
+    // Generate init segment from original source
     let init_path = status.hls_dir.join("init.mp4");
 
-    if let Err(e) = generate_init_segment(&first_segment, &init_path).await {
+    if let Err(e) = generate_init_segment(&status.source_path, &init_path).await {
         eprintln!("Warning: Could not generate init segment: {:?}", e);
     } else {
         playlist.init_segment = Some("init.mp4".to_string());
