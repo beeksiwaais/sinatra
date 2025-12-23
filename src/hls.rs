@@ -15,6 +15,7 @@ pub struct MediaPlaylist {
     pub end_list: bool,
     pub playlist_type: Option<String>,
     pub independent_segments: bool,
+    pub init_segment: Option<String>,
 }
 
 impl MediaPlaylist {
@@ -27,6 +28,7 @@ impl MediaPlaylist {
             end_list: true,
             playlist_type: None,
             independent_segments: false,
+            init_segment: None,
         }
     }
 
@@ -52,6 +54,11 @@ impl MediaPlaylist {
 
         if self.independent_segments {
             file.write_all(b"#EXT-X-INDEPENDENT-SEGMENTS\n").await?;
+        }
+
+        if let Some(init) = &self.init_segment {
+            file.write_all(format!("#EXT-X-MAP:URI=\"{}\"\n", init).as_bytes())
+                .await?;
         }
 
         for segment in &self.segments {
@@ -80,6 +87,7 @@ mod tests {
         let mut playlist = MediaPlaylist::new(10);
         playlist.playlist_type = Some("VOD".to_string());
         playlist.independent_segments = true;
+        playlist.init_segment = Some("init.mp4".to_string());
         playlist.add_segment(9.5, "segment_0.ts".to_string());
 
         let dir = std::env::temp_dir();
@@ -92,6 +100,7 @@ mod tests {
         assert!(content.contains("#EXT-X-PLAYLIST-TYPE:VOD"));
         assert!(content.contains("#EXT-X-INDEPENDENT-SEGMENTS"));
         assert!(content.contains("#EXT-X-TARGETDURATION:10"));
+        assert!(content.contains("#EXT-X-MAP:URI=\"init.mp4\""));
         assert!(content.contains("#EXTINF:9.500000,"));
         assert!(content.contains("segment_0.ts"));
 
