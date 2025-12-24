@@ -1,0 +1,153 @@
+name: Deploy to AWS (Dev)
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+
+env:
+  AWS_REGION: us-east-1
+  PULUMI_STACK: dev
+  DEPLOY_BUCKET: sinatra-deploy
+
+jobs:
+  build-lambdas:
+    name: Build Lambda Binaries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+        with:
+          toolchain: stable
+          targets: x86_64-unknown-linux-musl
+
+      - name: Install musl-tools
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Install cargo-lambda
+        run: |
+          pip3 install cargo-lambda
+
+      - name: Install FFmpeg libs (for ffmpeg-next)
+        run: |
+          sudo apt-get install -y libavcodec-dev libavformat-dev libavutil-dev libavfilter-dev libavdevice-dev libswscale-dev libswresample-dev pkg-config
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-lambda-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build aws_orchestrator
+        run: cargo lambda build --release --bin aws_orchestrator --features aws_orchestrator
+
+      - name: Build aws_worker
+        run: cargo lambda build --release --bin aws_worker --features aws_worker
+
+      - name: Package Lambdas
+        run: |
+          cd target/lambda
+          zip -j aws_orchestrator.zip aws_orchestrator/bootstrap
+          zip -j aws_worker.zip aws_worker/bootstrap
+
+      - name: Upload Lambda artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: lambda-binaries
+          path: |
+            target/lambda/aws_orchestrator.zip
+            target/lambda/aws_worker.zip
+
+  deploy-infrastructure:
+    name: Deploy Pulumi Infrastructure
+    needs: build-lambdas
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Lambda artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: lambda-binaries
+          path: ./lambda-binaries
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Create deploy bucket (if not exists)
+        run: |
+          aws s3 mb s3://${{ env.DEPLOY_BUCKET }} --region ${{ env.AWS_REGION }} || true
+
+      - name: Upload Lambda packages to S3
+        run: |
+          aws s3 cp ../lambda-binaries/aws_orchestrator.zip s3://${{ env.DEPLOY_BUCKET }}/lambda/aws_orchestrator.zip
+          aws s3 cp ../lambda-binaries/aws_worker.zip s3://${{ env.DEPLOY_BUCKET }}/lambda/aws_worker.zip
+
+      - name: Install Rust (for Pulumi)
+        uses: dtolnay/rust-action@stable
+        with:
+          toolchain: stable
+
+      - name: Cache Pulumi Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            infra/target
+          key: ${{ runner.os }}-pulumi-cargo-${{ hashFiles('infra/Cargo.lock') }}
+
+      - name: Install Pulumi
+        uses: pulumi/actions@v5
+
+      - name: Build Pulumi program
+        run: cargo build --release
+
+      - name: Pulumi Login
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+        run: pulumi login
+
+      - name: Select Stack
+        run: pulumi stack select ${{ env.PULUMI_STACK }} --create
+
+      - name: Pulumi Preview
+        run: pulumi preview
+
+      - name: Pulumi Up
+        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+        run: pulumi up --yes
+
+      - name: Export Outputs
+        run: |
+          echo "## Deployment Outputs" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Output | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          pulumi stack output --json | jq -r 'to_entries[] | "| \(.key) | \(.value) |"' >> $GITHUB_STEP_SUMMARY

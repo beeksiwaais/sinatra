@@ -1,0 +1,20 @@
+# Cargo configuration for Sinatra
+
+[alias]
+# Build binaries with their required features
+monolith = "build --bin monolith --features local"
+aws-worker = "build --bin aws_worker --features aws_worker"
+aws-orchestrator = "build --bin aws_orchestrator --features aws_orchestrator"
+
+# Run binaries with their required features
+run-monolith = "run --bin monolith --features local"
+run-aws-worker = "run --bin aws_worker --features aws_worker"
+run-aws-orchestrator = "run --bin aws_orchestrator --features aws_orchestrator"
+
+# Check binaries
+check-monolith = "check --bin monolith --features local"
+check-aws-worker = "check --bin aws_worker --features aws_worker"
+check-aws-orchestrator = "check --bin aws_orchestrator --features aws_orchestrator"
+
+# Check all
+check-all = "check --features full"

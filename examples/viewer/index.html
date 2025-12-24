@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -134,8 +135,15 @@
         }
 
         @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.4; }
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.4;
+            }
         }
 
         .progress-bar {
@@ -265,6 +273,7 @@
         }
     </style>
 </head>
+
 <body>
     <div class="container">
         <header>
@@ -319,8 +328,9 @@
     <script>
         const API_BASE = 'http://127.0.0.1:3000';
         const HLS_BASE = 'http://127.0.0.1:3000/hls';
-        
+
         let currentVideoName = null;
+        let currentVideoKey = null;
         let pollInterval = null;
 
         // DOM Elements
@@ -340,7 +350,7 @@
 
         // Drag and Drop
         dropZone.addEventListener('click', () => fileInput.click());
-        
+
         dropZone.addEventListener('dragover', (e) => {
             e.preventDefault();
             dropZone.classList.add('dragover');
@@ -386,38 +396,57 @@
 
         async function uploadFile(file) {
             progressContainer.classList.remove('hidden');
-            statusText.textContent = 'Uploading...';
+            statusText.textContent = 'Getting upload URL...';
             progressFill.style.width = '0%';
 
-            const formData = new FormData();
-            formData.append('file', file);
-
             try {
-                const response = await fetch(`${API_BASE}/upload`, {
-                    method: 'POST',
-                    body: formData
+                // 1. Get presigned URL from our viewer backend
+                const params = new URLSearchParams({
+                    filename: file.name,
+                    file_type: file.type,
+                    size: file.size.toString()
                 });
 
-                if (!response.ok) {
-                    throw new Error('Upload failed');
+                const presignRes = await fetch(`/presign?${params.toString()}`);
+                if (!presignRes.ok) {
+                    const errText = await presignRes.text();
+                    throw new Error(errText || 'Failed to get presigned URL');
+                }
+                const { url: presignedUrl } = await presignRes.json();
+
+                statusText.textContent = 'Uploading to S3...';
+
+                // 2. Upload directly to S3 (Sinatra) using the presigned URL
+                const uploadRes = await fetch(presignedUrl, {
+                    method: 'PUT',
+                    body: file,
+                    headers: {
+                        'Content-Type': file.type,
+                        'x-amz-meta-original-name': file.name
+                    }
+                });
+
+                if (!uploadRes.ok) {
+                    throw new Error('Upload to S3 failed');
                 }
 
                 statusText.textContent = 'Transcoding...';
-                
+
                 // Start polling for playlist
                 startPollingForPlaylist();
             } catch (error) {
                 showError(`Upload failed: ${error.message}`);
+                progressContainer.classList.add('hidden');
             }
         }
 
         function startPollingForPlaylist() {
             let attempts = 0;
             const maxAttempts = 120; // 2 minutes max
-            
+
             pollInterval = setInterval(async () => {
                 attempts++;
-                
+
                 if (attempts > maxAttempts) {
                     clearInterval(pollInterval);
                     showError('Timeout waiting for transcoding to complete');
@@ -427,7 +456,7 @@
                 try {
                     const playlistUrl = `${HLS_BASE}/${currentVideoName}/playlist.m3u8`;
                     const response = await fetch(playlistUrl, { method: 'HEAD' });
-                    
+
                     if (response.ok) {
                         clearInterval(pollInterval);
                         onPlaylistReady(playlistUrl);
@@ -447,12 +476,12 @@
         function onPlaylistReady(playlistUrl) {
             progressFill.style.width = '100%';
             statusText.textContent = 'Ready!';
-            
+
             setTimeout(() => {
                 progressContainer.classList.add('hidden');
                 videoContainer.classList.remove('hidden');
                 controls.classList.remove('hidden');
-                
+
                 // Initialize HLS.js or native playback
                 if (Hls.isSupported()) {
                     const hls = new Hls({
@@ -486,20 +515,20 @@
             if (pollInterval) {
                 clearInterval(pollInterval);
             }
-            
+
             currentVideoName = null;
             fileInput.value = '';
-            
+
             dropZone.classList.remove('hidden');
             fileInfo.classList.add('hidden');
             progressContainer.classList.add('hidden');
             videoContainer.classList.add('hidden');
             controls.classList.add('hidden');
             errorContainer.classList.add('hidden');
-            
+
             video.pause();
             video.src = '';
-            
+
             progressFill.style.width = '0%';
         }
 
@@ -512,4 +541,5 @@
         }
     </script>
 </body>
+
 </html>

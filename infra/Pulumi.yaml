@@ -1,0 +1,4 @@
+name: sinatra-infra
+runtime:
+  name: rust
+description: AWS infrastructure for Sinatra video processing

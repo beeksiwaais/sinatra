@@ -1,0 +1,10 @@
+[package]
+name = "sinatra-infra"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pulumi_wasm = "0.1"
+pulumi_wasm_aws = "0.1"
+pulumi_wasm_aws_cloudfront = "0.1"
+tokio = { version = "1", features = ["full"] }
