@@ -28,4 +28,11 @@ impl S3 for LocalS3 {
     ) -> S3Result<S3Response<GetObjectOutput>> {
         super::buckets::get::handle(self, req).await
     }
+
+    async fn head_object(
+        &self,
+        req: S3Request<HeadObjectInput>,
+    ) -> S3Result<S3Response<HeadObjectOutput>> {
+        super::buckets::head::handle(self, req).await
+    }
 }

@@ -59,12 +59,13 @@ async fn main() {
     events::listener::start(event_hub.clone(), orchestrator.clone());
 
     // 5. HTTP Layer (S3-compatible API - Local only)
+    // CORS must be applied to the S3 service directly, not the router,
+    // because fallback_service bypasses router layers
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
-        .allow_headers(Any);
-
-    let router = Router::new().layer(cors).layer(DefaultBodyLimit::disable());
+        .allow_headers(Any)
+        .expose_headers(Any);
 
     let s3_impl = LocalS3 {
         event_hub: event_hub.clone(),
@@ -72,7 +73,15 @@ async fn main() {
     };
 
     let s3_service = buckets::auth::create_service(&config, s3_impl);
-    let app = router.fallback_service(s3_service);
+
+    // Apply CORS and body limit to the S3 service
+    use tower::ServiceBuilder;
+    let s3_with_cors = ServiceBuilder::new()
+        .layer(cors)
+        .layer(DefaultBodyLimit::disable())
+        .service(s3_service);
+
+    let app = Router::new().fallback_service(s3_with_cors);
 
     // 6. Start Server
     let listener = tokio::net::TcpListener::bind(format!("{}:{}", config.addr, config.port))

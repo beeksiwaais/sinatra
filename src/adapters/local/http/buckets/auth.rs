@@ -65,7 +65,8 @@ pub fn create_service(
                 if let Some((bucket_name, _)) = path_str.split_once('/') {
                     if let Some(bucket) = super::bucket::find(bucket_name) {
                         if bucket.access == super::bucket::BucketAccess::PublicRead
-                            && method == axum::http::Method::GET
+                            && (method == axum::http::Method::GET
+                                || method == axum::http::Method::HEAD)
                         {
                             is_public_read = true;
                         }

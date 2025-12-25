@@ -40,8 +40,15 @@ aws_worker = [
 # Full AWS (both orchestrator and worker)
 aws = ["aws_orchestrator", "aws_worker"]
 
+# Viewer example: S3 presigning + web server
+viewer = [
+    "dep:axum",
+    "dep:aws-sdk-s3",
+    "dep:aws-config"
+]
+
 # Full: everything (for development)
-full = ["local", "aws"]
+full = ["local", "aws", "viewer"]
 
 [dependencies]
 # Core dependencies (always included)
@@ -97,3 +104,7 @@ required-features = ["aws_worker"]
 name = "aws_orchestrator"
 path = "src/bin/aws_orchestrator.rs"
 required-features = ["aws_orchestrator"]
+
+[[example]]
+name = "viewer"
+required-features = ["viewer"]

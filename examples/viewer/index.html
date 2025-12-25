@@ -417,12 +417,12 @@
                 statusText.textContent = 'Uploading to S3...';
 
                 // 2. Upload directly to S3 (Sinatra) using the presigned URL
+                // Only Content-Type is signed, so only that header is required
                 const uploadRes = await fetch(presignedUrl, {
                     method: 'PUT',
                     body: file,
                     headers: {
-                        'Content-Type': file.type,
-                        'x-amz-meta-original-name': file.name
+                        'Content-Type': file.type
                     }
                 });
 

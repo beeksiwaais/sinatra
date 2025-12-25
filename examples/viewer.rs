@@ -131,13 +131,16 @@ async fn get_presigned_url(
     };
 
     let expires_in = Duration::from_secs(3600); // 1 hour
+                                                // Note: We intentionally do NOT include .metadata() here because:
+                                                // 1. The browser must send the EXACT same header values
+                                                // 2. URL encoding/character escaping can cause mismatches
+                                                // 3. x-amz-meta headers are signed, so any difference = SignatureDoesNotMatch
     let presigned_request = state
         .client
         .put_object()
         .bucket("stream")
         .key(&key)
         .content_type(&params.file_type)
-        .metadata("original-name", &params.filename)
         .presigned(PresigningConfig::expires_in(expires_in).unwrap())
         .await
         .map_err(|e| {
