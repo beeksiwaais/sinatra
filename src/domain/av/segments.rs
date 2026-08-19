@@ -1,10 +1,14 @@
 use super::av::AV;
+use ffmpeg::{codec, encoder, format, media, Dictionary, Rational};
 use ffmpeg_next as ffmpeg;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tokio::fs;
 
-use tokio::process::Command;
 use tokio::task;
+
+/// Muxer flags shared by the init segment and every media segment, so the fragments
+/// we emit stay compatible with the header a player has already loaded.
+const FRAGMENTED_MP4_FLAGS: &str = "frag_keyframe+empty_moov+default_base_moof";
 
 pub async fn get_segments(path: &std::path::Path) -> Vec<f64> {
     let path_clone = path.to_path_buf();
@@ -49,8 +53,125 @@ pub async fn get_segments(path: &std::path::Path) -> Vec<f64> {
     .unwrap()
 }
 
+/// Copy the streams of `source` into a fragmented MP4 at `dest`, without re-encoding.
+///
+/// `range` is an optional `(start, duration)` in seconds selecting which packets to
+/// copy; `None` writes the header and nothing else. Note that each call is its own
+/// muxer, so the fragment's baseMediaDecodeTime restarts at 0 rather than carrying
+/// the absolute presentation time.
+///
+/// Returns the byte length of the initialization section (ftyp + moov), which is
+/// exactly where the first fragment begins.
+fn remux_fragmented(
+    source: &Path,
+    dest: &Path,
+    range: Option<(f64, f64)>,
+) -> Result<u64, ffmpeg::Error> {
+    ffmpeg::init()?;
+
+    let mut ictx = format::input(&source)?;
+    let mut octx = format::output_as(&dest, "mp4")?;
+
+    // Map audio/video/subtitle streams across, copying codec parameters verbatim.
+    let mut stream_mapping = vec![-1i32; ictx.nb_streams() as usize];
+    let mut ist_time_bases = vec![Rational(0, 1); ictx.nb_streams() as usize];
+    let mut mapped = Vec::new();
+    let mut ost_index = 0;
+
+    for (ist_index, ist) in ictx.streams().enumerate() {
+        let medium = ist.parameters().medium();
+        if medium != media::Type::Audio
+            && medium != media::Type::Video
+            && medium != media::Type::Subtitle
+        {
+            continue;
+        }
+
+        stream_mapping[ist_index] = ost_index;
+        ist_time_bases[ist_index] = ist.time_base();
+        mapped.push(ist_index);
+        ost_index += 1;
+
+        let mut ost = octx.add_stream(encoder::find(codec::Id::None))?;
+        ost.set_parameters(ist.parameters());
+        // Codec tags are container specific and don't carry over between muxers.
+        unsafe {
+            (*ost.parameters().as_mut_ptr()).codec_tag = 0;
+        }
+    }
+
+    let mut options = Dictionary::new();
+    options.set("movflags", FRAGMENTED_MP4_FLAGS);
+    octx.write_header_with(options)?;
+
+    // `empty_moov` means the header is complete as soon as write_header returns, so
+    // the current output position is the exact size of the init segment. avio_tell is
+    // a static inline in C and therefore not bound, so seek by 0 from SEEK_CUR (1).
+    let init_size = unsafe {
+        let position = ffmpeg::ffi::avio_seek((*octx.as_mut_ptr()).pb, 0, 1);
+        if position < 0 {
+            return Err(ffmpeg::Error::from(position as i32));
+        }
+        position as u64
+    };
+
+    let Some((start, duration)) = range else {
+        return Ok(init_size);
+    };
+    let end = start + duration;
+
+    // Seek to the keyframe at or before `start`; segment boundaries come from
+    // get_segments, so this normally lands exactly on the requested keyframe.
+    let seek_target = (start * f64::from(ffmpeg::ffi::AV_TIME_BASE)) as i64;
+    ictx.seek(seek_target, ..seek_target)?;
+
+    let mut past_end = vec![false; stream_mapping.len()];
+
+    for (stream, mut packet) in ictx.packets() {
+        let ist_index = stream.index();
+        let ost_index = stream_mapping[ist_index];
+        if ost_index < 0 {
+            continue;
+        }
+
+        let ist_time_base = ist_time_bases[ist_index];
+        if let Some(pts) = packet.pts() {
+            let time =
+                pts as f64 * ist_time_base.numerator() as f64 / ist_time_base.denominator() as f64;
+
+            if time < start {
+                continue;
+            }
+            if time >= end {
+                // Other streams may still owe us packets for this window.
+                past_end[ist_index] = true;
+                if mapped.iter().all(|&index| past_end[index]) {
+                    break;
+                }
+                continue;
+            }
+        }
+
+        let ost_time_base = octx.stream(ost_index as usize).unwrap().time_base();
+        packet.rescale_ts(ist_time_base, ost_time_base);
+        packet.set_position(-1);
+        packet.set_stream(ost_index as usize);
+        packet.write_interleaved(&mut octx)?;
+    }
+
+    // For fragmented MP4 av_write_trailer returns the size of the trailing mfra box,
+    // and ffmpeg-next's write_trailer() reports any non-zero return as an error, so
+    // call it directly and only treat a negative result as a failure.
+    let trailer = unsafe { ffmpeg::ffi::av_write_trailer(octx.as_mut_ptr()) };
+    if trailer < 0 {
+        return Err(ffmpeg::Error::from(trailer));
+    }
+
+    Ok(init_size)
+}
+
 pub async fn transcode_at(av: &AV<'_>, segment: usize, at_path: PathBuf) {
-    if segment >= av.segments.len() {
+    if segment + 1 >= av.segments.len() {
         println!(
             "Segment {:?} was not transcoded because it do not match known segments in av",
             segment
@@ -58,148 +179,65 @@ pub async fn transcode_at(av: &AV<'_>, segment: usize, at_path: PathBuf) {
         return;
     }
 
-    let start_at = av.segments.get(segment).unwrap().to_string();
-    let duration: f64 = av.segments.get(segment + 1).unwrap() - av.segments.get(segment).unwrap();
-    let duration_as_str: String = duration.to_string();
+    let start_at = av.segments[segment];
+    let duration = av.segments[segment + 1] - start_at;
 
     // Use a temporary path for the full fMP4 (header + fragment)
     let temp_path = at_path.with_extension("temp.mp4");
 
-    let transcode = Command::new("ffmpeg")
-        .arg("-y")
-        .arg("-ss")
-        .arg(&start_at)
-        .arg("-i")
-        .arg(av.path)
-        .arg("-t")
-        .arg(&duration_as_str)
-        // Fragmented MP4 flags for HLS compatibility
-        .arg("-movflags")
-        .arg("frag_keyframe+empty_moov+default_base_moof")
-        .arg("-output_ts_offset")
-        .arg(&start_at)
-        .arg(&temp_path)
-        .output()
-        .await;
+    let source = av.path.to_path_buf();
+    let remux_target = temp_path.clone();
+    let remuxed = task::spawn_blocking(move || {
+        remux_fragmented(&source, &remux_target, Some((start_at, duration)))
+    })
+    .await
+    .unwrap();
 
-    println!("Transcode result for segment {}: {:?}", segment, transcode);
-
-    if let Ok(output) = transcode {
-        if !output.status.success() {
-            eprintln!("FFmpeg failed: {:?}", output);
+    let init_size = match remuxed {
+        Ok(init_size) => init_size as usize,
+        Err(e) => {
+            eprintln!("FFmpeg failed for segment {}: {}", segment, e);
+            let _ = fs::remove_file(temp_path).await;
             return;
         }
+    };
 
-        // Strip the initialization header (ftyp + moov) to leave only the fragment (moof + mdat)
-        if let Err(e) = strip_init_header(&temp_path, &at_path).await {
-            eprintln!("Failed to strip header for segment {}: {}", segment, e);
-        } else {
-            // Clean up temp file only on success
+    // Drop the initialization header (ftyp + moov) to leave only the fragment
+    // (moof + mdat); players load that header once, from the init segment.
+    match fs::read(&temp_path).await {
+        Ok(data) if data.len() > init_size => {
+            if let Err(e) = fs::write(&at_path, &data[init_size..]).await {
+                eprintln!("Failed to write segment {}: {}", segment, e);
+                return;
+            }
             let _ = fs::remove_file(temp_path).await;
         }
+        Ok(_) => eprintln!("Segment {} contains no fragment data", segment),
+        Err(e) => eprintln!("Failed to read segment {}: {}", segment, e),
     }
-}
-
-/// Helper to strip ftyp+moov from a fragmented MP4, leaving only the fragment.
-async fn strip_init_header(
-    input_path: &PathBuf,
-    output_path: &PathBuf,
-) -> Result<(), std::io::Error> {
-    let data = fs::read(input_path).await?;
-
-    let mut offset = 0;
-    while offset < data.len() {
-        if offset + 8 > data.len() {
-            break;
-        }
-
-        let size = u32::from_be_bytes([
-            data[offset],
-            data[offset + 1],
-            data[offset + 2],
-            data[offset + 3],
-        ]) as usize;
-        if size < 8 || offset + size > data.len() {
-            break;
-        }
-
-        let box_type = std::str::from_utf8(&data[offset + 4..offset + 8]).unwrap_or("");
-
-        if box_type == "moof" {
-            // Found the fragment start. Write everything from here to end.
-            fs::write(output_path, &data[offset..]).await?;
-            return Ok(());
-        }
-        offset += size;
-    }
-
-    Err(std::io::Error::new(
-        std::io::ErrorKind::InvalidData,
-        "No moof atom found",
-    ))
 }
 
 /// Generate a standalone init.mp4 from the source file.
-/// This runs a quick transcoding of 1 frame to generate the headers.
+/// Only the muxer header is written, so the result is exactly ftyp + moov.
 #[allow(dead_code)]
 pub async fn generate_init_segment(
     source_path: &std::path::Path,
     init_path: &std::path::Path,
 ) -> Result<(), std::io::Error> {
-    // We generate a temp fMP4 to extract the header from
-    let temp_init_path = init_path.with_extension("init_temp.mp4");
+    let source = source_path.to_path_buf();
+    let destination = init_path.to_path_buf();
 
-    let _ = Command::new("ffmpeg")
-        .arg("-y")
-        .arg("-i")
-        .arg(source_path)
-        .arg("-frames:v")
-        .arg("1")
-        .arg("-movflags")
-        .arg("frag_keyframe+empty_moov+default_base_moof")
-        .arg(&temp_init_path)
-        .output()
-        .await?;
+    let init_size = task::spawn_blocking(move || remux_fragmented(&source, &destination, None))
+        .await
+        .unwrap()
+        .map_err(std::io::Error::other)?;
 
-    // Now parse and extract only ftyp + moov
-    let data = fs::read(&temp_init_path).await?;
-    let mut init_data = Vec::new();
-    let mut offset = 0;
+    // Nothing follows the header, but truncate anyway so the file is exactly the
+    // init segment regardless of what the muxer decided to flush.
+    let file = fs::OpenOptions::new().write(true).open(init_path).await?;
+    file.set_len(init_size).await?;
 
-    while offset < data.len() {
-        if offset + 8 > data.len() {
-            break;
-        }
-        let size = u32::from_be_bytes([
-            data[offset],
-            data[offset + 1],
-            data[offset + 2],
-            data[offset + 3],
-        ]) as usize;
-        if size < 8 || offset + size > data.len() {
-            break;
-        }
-        let box_type = std::str::from_utf8(&data[offset + 4..offset + 8]).unwrap_or("");
-
-        match box_type {
-            "ftyp" | "moov" => {
-                init_data.extend_from_slice(&data[offset..offset + size]);
-            }
-            "moof" => {
-                break; // Stop at first fragment
-            }
-            _ => {}
-        }
-        offset += size;
-    }
-
-    if !init_data.is_empty() {
-        fs::write(init_path, &init_data).await?;
-        println!("Generated init segment at {:?}", init_path);
-    }
-
-    // Clean up
-    let _ = fs::remove_file(temp_init_path).await;
+    println!("Generated init segment at {:?}", init_path);
 
     Ok(())
 }
